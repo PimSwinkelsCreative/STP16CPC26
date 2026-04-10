@@ -1,7 +1,7 @@
 {
-    "name": "TLC5947",
-    "description": "A TLC5947 library that uses the ESP32 HW SPI to quickly update the driver",
-    "keywords": "LED,TLC5947,SPI,fast",
+    "name": "STP16CPC26",
+    "description": "A STP16CPC26 library that uses the ESP32 HW SPI to quickly update the driver",
+    "keywords": "LED,STP16CPC26,SPI,fast",
     "authors": [
         {
             "name": "Pim Swinkels",
@@ -11,13 +11,13 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/PimSwinkelsCreative/TLC5947"
+        "url": "https://github.com/PimSwinkelsCreative/STP16CPC26"
     },
     "version": "2.1.1",
     "license": "MIT",
     "frameworks": "arduino",
     "platforms": "espressif32",
-    "headers": "TLC5947.h",
+    "headers": "STP16CPC26.h",
     "dependencies":
     {
         "16bitPixels": "https://github.com/PimSwinkelsCreative/16bitPixelTypes#v0.1.1",
@@ -25,9 +25,9 @@
     },
     "examples":[
         {
-            "name": "RGBW_Blink",
-            "base": "examples/RGBW_Blink",
-            "files": "RGBW_Blink.ino"
+            "name": "LED_Fade",
+            "base": "examples/LED_Fade",
+            "files": "LED_Fade.ino"
         }
     ]
 }
