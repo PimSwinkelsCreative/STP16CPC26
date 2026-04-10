@@ -1,5 +1,6 @@
 {
     "name": "STP16CPC26",
+    "version": "1.0.0",
     "description": "A STP16CPC26 library that uses the ESP32 HW SPI to quickly update the driver",
     "keywords": "LED,STP16CPC26,SPI,fast",
     "authors": [
@@ -13,7 +14,6 @@
         "type": "git",
         "url": "https://github.com/PimSwinkelsCreative/STP16CPC26"
     },
-    "version": "2.1.1",
     "license": "MIT",
     "frameworks": "arduino",
     "platforms": "espressif32",
