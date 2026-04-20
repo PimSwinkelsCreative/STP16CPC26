@@ -1,8 +1,8 @@
 {
-    "name": "STP16CPC26",
+    "name": "LED1642GW",
     "version": "1.0.0",
-    "description": "A STP16CPC26 library that uses the ESP32 HW SPI to quickly update the driver",
-    "keywords": "LED,STP16CPC26,SPI,fast",
+    "description": "A LED1642GW library that uses the ESP32 HW SPI to quickly update the driver",
+    "keywords": "LED,LED1642GW,SPI,fast",
     "authors": [
         {
             "name": "Pim Swinkels",
@@ -12,12 +12,12 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/PimSwinkelsCreative/STP16CPC26"
+        "url": "https://github.com/PimSwinkelsCreative/LED1642GW"
     },
     "license": "MIT",
     "frameworks": "arduino",
     "platforms": "espressif32",
-    "headers": "STP16CPC26.h",
+    "headers": "LED1642GW.h",
     "dependencies":
     {
         "16bitPixels": "https://github.com/PimSwinkelsCreative/16bitPixelTypes#v0.1.1",
