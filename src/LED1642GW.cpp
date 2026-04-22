@@ -58,14 +58,10 @@ void LED1642GW::init()
     pinMode(clkPin, OUTPUT);
     pinMode(dataPin, OUTPUT);
     pinMode(latchPin, OUTPUT);
-    // digitalWrite(latchPin, LOW);
+    digitalWrite(latchPin, LOW);
 
     setConfigRegister();
     enableOutputs();
-
-    // start the SPI interface
-    // ledSPI = new SPIClass(FSPI);
-    // ledSPI->begin(clkPin, -1, dataPin, -1);
 
     start();
 }
