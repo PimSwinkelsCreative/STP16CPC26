@@ -85,11 +85,14 @@ void LED1642GW::setConfigRegister()
         for (int i = 15; i >= 0; i--) {
             digitalWrite(dataPin, (cfg & 0x01 << i) >> i);
 
-            if (i < 7) {
-                digitalWrite(latchPin, HIGH);
-            } else {
-                digitalWrite(latchPin, LOW);
+            if (driver == 0) {
+                if (i < 7) {
+                    digitalWrite(latchPin, HIGH);
+                } else {
+                    digitalWrite(latchPin, LOW);
+                }
             }
+
             digitalWrite(clkPin, HIGH);
             digitalWrite(clkPin, LOW);
         }
@@ -134,11 +137,14 @@ void LED1642GW::enableOutputs()
         for (int i = 15; i >= 0; i--) {
             digitalWrite(dataPin, HIGH);
 
-            if (driver == 0 && i < 2) {
-                digitalWrite(latchPin, HIGH);
-            } else {
-                digitalWrite(latchPin, LOW);
+            if (driver == 0) {
+                if (i < 2) {
+                    digitalWrite(latchPin, HIGH);
+                } else {
+                    digitalWrite(latchPin, LOW);
+                }
             }
+
             digitalWrite(clkPin, HIGH);
             digitalWrite(clkPin, LOW);
         }
