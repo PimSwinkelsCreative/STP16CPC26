@@ -53,8 +53,4 @@ public:
 
     // write the ledData to the led drivers:
     void update();
-
-
-    
-    void setBrightnessRegisters(uint16_t brightness);
 };
