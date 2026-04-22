@@ -151,12 +151,9 @@ void LED1642GW::start()
 
 void LED1642GW::update()
 {
-    int debugCounter = 0;
     for (int channel = 15; channel >= 0; channel--) {
         for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
             int nodeIndex = driver * LEDDOTSPERDRIVER + channel;
-            // leds[nodeIndex] += debugCounter << 8; // set the MSB to the counter Index
-            debugCounter++;
             for (int i = 15; i >= 0; i--) {
                 digitalWrite(dataPin, (leds[nodeIndex] & 0x01 << i) >> i);
                 if (driver == 0) {
@@ -165,7 +162,7 @@ void LED1642GW::update()
                             digitalWrite(latchPin, HIGH);
                         }
                     } else {
-                        if (i ==5) {
+                        if (i == 5) {
                             digitalWrite(latchPin, HIGH);
                         }
                     }
@@ -176,7 +173,6 @@ void LED1642GW::update()
             digitalWrite(latchPin, LOW);
         }
     }
-    digitalWrite(latchPin, LOW);
     digitalWrite(dataPin, LOW);
 }
 
