@@ -5,43 +5,37 @@
 #include "soc/gpio_struct.h"
 
 LED1642GW::LED1642GW(uint16_t* _ledData, uint16_t _nLedDots, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin,
-    uint32_t _clkFrequency)
+    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
     : leds(_ledData)
     , nLedDots(_nLedDots)
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
     , pwmClockPin(_pwmClockPin)
-    , clkFrequency(_clkFrequency)
 {
     init();
 }
 
 LED1642GW::LED1642GW(RGBColor16* _rgbLedData, uint16_t _nRGBLeds, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin,
-    uint32_t _clkFrequency)
+    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
     : leds((uint16_t*)_rgbLedData)
     , nLedDots(_nRGBLeds * (sizeof(_rgbLedData[0]) / sizeof(_rgbLedData[0].r)))
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
     , pwmClockPin(_pwmClockPin)
-    , clkFrequency(_clkFrequency)
 {
     init();
 }
 
 LED1642GW::LED1642GW(RGBWColor16* _rgbwData, uint16_t _nRGBWLeds, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin,
-    uint32_t _clkFrequency)
+    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
     : leds((uint16_t*)_rgbwData)
     , nLedDots(_nRGBWLeds * (sizeof(_rgbwData[0]) / sizeof(_rgbwData[0].r)))
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
     , pwmClockPin(_pwmClockPin)
-    , clkFrequency(_clkFrequency)
 {
     init();
 }
@@ -62,10 +56,15 @@ void LED1642GW::init()
     dataPinBitmap = 1 << (dataPin % 32);
     latchPinBitmap = 1 << (latchPin % 32);
 
+    lastSettingsUpdate = 0;
+    settingUpdateInterval = 1000;
+
     setConfigRegister();
     enableOutputs();
 
-    start();
+    if (pwmClockPin >= 0) {
+        startPWMClock();
+    }
 }
 
 void LED1642GW::setConfigRegister()
@@ -79,47 +78,39 @@ void LED1642GW::setConfigRegister()
 
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
         for (int i = 15; i >= 0; i--) {
-            digitalWrite(dataPin, (cfg & 0x01 << i) >> i);
+            setDataPin((cfg & 0x01 << i) >> i);
 
             if (driver == 0) {
-                if (i < 7) {
-                    digitalWrite(latchPin, HIGH);
-                } else {
-                    digitalWrite(latchPin, LOW);
+                if (i == 6) {
+                    setLatchPin();
                 }
             }
-
-            digitalWrite(clkPin, HIGH);
-            digitalWrite(clkPin, LOW);
+            pulseClock();
         }
+        clearLatchPin();
     }
-
-    digitalWrite(dataPin, LOW);
-    digitalWrite(latchPin, LOW);
+    setDataPin(false);
 }
 
 void LED1642GW::enableOutputs()
 {
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
         for (int i = 15; i >= 0; i--) {
-            digitalWrite(dataPin, HIGH);
+            setDataPin(true); // all pins need to be enabled, so data is always "1"
 
             if (driver == 0) {
-                if (i < 2) {
+                if (i == 1) {
                     digitalWrite(latchPin, HIGH);
-                } else {
-                    digitalWrite(latchPin, LOW);
                 }
             }
-            digitalWrite(clkPin, HIGH);
-            digitalWrite(clkPin, LOW);
+            pulseClock();
         }
+        clearLatchPin();
     }
-    digitalWrite(dataPin, LOW);
-    digitalWrite(latchPin, LOW);
+    setDataPin(false);
 }
 
-void LED1642GW::start()
+void LED1642GW::startPWMClock()
 {
     // use the I2S clock as the 10MHz PWMclock:
     i2s_config_t i2s_config = {
@@ -149,34 +140,36 @@ void LED1642GW::start()
 
 void LED1642GW::update()
 {
+    // periodically re-send the config data to allow for delayed power on of the interconnect boards:
+    if (millis() - lastSettingsUpdate > settingUpdateInterval) {
+        lastSettingsUpdate = millis();
+        setConfigRegister();
+        enableOutputs();
+    }
+
+    // send the LED data:
     for (int channel = 15; channel >= 0; channel--) {
         for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
             uint16_t nodeIndex = driver * LEDDOTSPERDRIVER + channel;
             for (int i = 15; i >= 0; i--) {
-                // digitalWrite(dataPin, (leds[nodeIndex] & 0x01 << i) >> i);
                 setDataPin((leds[nodeIndex] & 0x01 << i) >> i);
+
                 if (driver == 0) {
                     if (channel > 0) {
                         if (i == 3) {
-                            // digitalWrite(latchPin, HIGH);
                             setLatchPin();
                         }
                     } else {
                         if (i == 5) {
-                            // digitalWrite(latchPin, HIGH);
                             setLatchPin();
                         }
                     }
                 }
-                // digitalWrite(clkPin, HIGH);
-                // digitalWrite(clkPin, LOW);
                 pulseClock();
             }
-            // digitalWrite(latchPin, LOW);
             clearLatchPin();
         }
     }
-    // digitalWrite(dataPin, LOW);
     setDataPin(false);
 }
 
@@ -298,4 +291,9 @@ void LED1642GW::clearLatchPin()
     } else {
         GPIO.out1_w1tc.val = latchPinBitmap;
     }
+}
+
+void LED1642GW::setConfigUpdateInterval(uint32_t milliseconds)
+{
+    settingUpdateInterval = milliseconds;
 }

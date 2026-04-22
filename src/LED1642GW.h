@@ -5,8 +5,6 @@
 #define LEDDOTSPERDRIVER 16
 #define BYTESPERDRIVER (2 * LEDDOTSPERDRIVER)
 
-#define DEFAULT_SPI_CLK 10000000 // 10MHz
-
 class LED1642GW {
 private:
     uint16_t* leds;
@@ -22,6 +20,9 @@ private:
     uint32_t dataPinBitmap;
     uint32_t latchPinBitmap;
 
+    uint64_t lastSettingsUpdate;
+    uint32_t settingUpdateInterval;
+
     void init();
     void setConfigRegister();
     void enableOutputs();
@@ -34,17 +35,14 @@ private:
 public:
     // constructors:
     LED1642GW(RGBColor16* _rgbLedData, uint16_t _nRGBLeds, uint8_t _clkPin,
-        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1,
-        uint32_t _clkFrequency = DEFAULT_SPI_CLK);
+        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1);
     LED1642GW(RGBWColor16* _rgbwLedData, uint16_t _nRGBWLeds, uint8_t _clkPin,
-        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1,
-        uint32_t _clkFrequency = DEFAULT_SPI_CLK);
+        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1);
     LED1642GW(uint16_t* _ledData, uint16_t _nLedDots, uint8_t _clkPin,
-        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1,
-        uint32_t _clkFrequency = DEFAULT_SPI_CLK);
+        uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin = -1);
 
     // startup:
-    void start();
+    void startPWMClock();
 
     // setting led:
     void setLedTo(uint16_t ledIndex, struct RGBWColor16 color);
@@ -61,4 +59,7 @@ public:
 
     // write the ledData to the led drivers:
     void update();
+
+    // function that sets the interval at which the driver config is being sent
+    void setConfigUpdateInterval(uint32_t milliseconds);
 };
