@@ -63,8 +63,6 @@ void LED1642GW::init()
     setConfigRegister();
     enableOutputs();
 
-    setBrightnessRegisters(0x1234);
-
     // start the SPI interface
     // ledSPI = new SPIClass(FSPI);
     // ledSPI->begin(clkPin, -1, dataPin, -1);
@@ -85,11 +83,14 @@ void LED1642GW::setConfigRegister()
         for (int i = 15; i >= 0; i--) {
             digitalWrite(dataPin, (cfg & 0x01 << i) >> i);
 
-            if (i < 7) {
-                digitalWrite(latchPin, HIGH);
-            } else {
-                digitalWrite(latchPin, LOW);
+            if (driver == 0) {
+                if (i < 7) {
+                    digitalWrite(latchPin, HIGH);
+                } else {
+                    digitalWrite(latchPin, LOW);
+                }
             }
+
             digitalWrite(clkPin, HIGH);
             digitalWrite(clkPin, LOW);
         }
@@ -97,48 +98,21 @@ void LED1642GW::setConfigRegister()
     digitalWrite(dataPin, LOW);
     digitalWrite(latchPin, LOW);
 }
-void LED1642GW::setBrightnessRegisters(uint16_t brightness)
-{
-    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        for (int channel = 15; channel >= 0; channel--) {
-            for (int i = 15; i >= 0; i--) {
-                digitalWrite(dataPin, (brightness & 0x01 << i) >> i);
 
-                if (driver == 0) {
-                    if (channel > 0) {
-                        if (i < 4) {
-                            digitalWrite(latchPin, HIGH);
-                        } else {
-                            digitalWrite(latchPin, LOW);
-                        }
-                    } else {
-                        if (i < 6) {
-                            digitalWrite(latchPin, HIGH);
-                        } else {
-                            digitalWrite(latchPin, LOW);
-                        }
-                    }
-                }
-
-                digitalWrite(clkPin, HIGH);
-                digitalWrite(clkPin, LOW);
-            }
-        }
-    }
-    digitalWrite(latchPin, LOW);
-    digitalWrite(dataPin, LOW);
-}
 void LED1642GW::enableOutputs()
 {
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
         for (int i = 15; i >= 0; i--) {
             digitalWrite(dataPin, HIGH);
 
-            if (driver == 0 && i < 2) {
-                digitalWrite(latchPin, HIGH);
-            } else {
-                digitalWrite(latchPin, LOW);
+            if (driver == 0) {
+                if (i < 2) {
+                    digitalWrite(latchPin, HIGH);
+                } else {
+                    digitalWrite(latchPin, LOW);
+                }
             }
+
             digitalWrite(clkPin, HIGH);
             digitalWrite(clkPin, LOW);
         }
@@ -177,30 +151,29 @@ void LED1642GW::start()
 
 void LED1642GW::update()
 {
-    for (int driverNr = nLedDrivers - 1; driverNr >= 0; driverNr--) {
-        // create an array for the next chunk to send over SPI:
-        uint8_t ledData[BYTESPERDRIVER];
-        memset(ledData, 0, sizeof(ledData));
-
-        uint16_t ledStartIndex = driverNr * LEDDOTSPERDRIVER;
-        for (int i = 0; i < LEDDOTSPERDRIVER; i++) {
-            if (i + ledStartIndex >= nLedDots)
-                break;
-
-            ledData[BYTESPERDRIVER - 2 * i - 1] = leds[i + ledStartIndex] & 0xFF;
-            ledData[BYTESPERDRIVER - 2 * i - 2] = (leds[i + ledStartIndex] & 0xFF00) >> 8;
+    for (int channel = 15; channel >= 0; channel--) {
+        for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
+            int nodeIndex = driver * LEDDOTSPERDRIVER + channel;
+            for (int i = 15; i >= 0; i--) {
+                digitalWrite(dataPin, (leds[nodeIndex] & 0x01 << i) >> i);
+                if (driver == 0) {
+                    if (channel > 0) {
+                        if (i == 3) {
+                            digitalWrite(latchPin, HIGH);
+                        }
+                    } else {
+                        if (i == 5) {
+                            digitalWrite(latchPin, HIGH);
+                        }
+                    }
+                }
+                digitalWrite(clkPin, HIGH);
+                digitalWrite(clkPin, LOW);
+            }
+            digitalWrite(latchPin, LOW);
         }
-
-        // write the data for one LED driver
-        ledSPI->beginTransaction(SPISettings(clkFrequency, MSBFIRST, SPI_MODE0));
-        ledSPI->transferBytes(ledData, NULL, BYTESPERDRIVER);
-        ledSPI->endTransaction();
     }
-
-    // // outputs are briefly disabled when latching the values.
-    // // This should solve the flickering problem
-    digitalWrite(latchPin, HIGH);
-    digitalWrite(latchPin, LOW);
+    digitalWrite(dataPin, LOW);
 }
 
 void LED1642GW::setLedTo(uint16_t ledIndex, struct RGBWColor16 color)
