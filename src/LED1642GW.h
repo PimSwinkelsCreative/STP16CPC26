@@ -47,18 +47,26 @@ private:
     SemaphoreHandle_t queuedBlocks;
     esp_lcd_i80_bus_handle_t i80_bus = nullptr;
     esp_lcd_panel_io_handle_t io_handle = nullptr;
+    uint16_t latchMasks[16];
 
     void init();
 
     void setConfigRegister();
     void enableOutputs();
     void startPWMClock();
-    
+
     // dma functions:
     bool setupDMA(uint32_t clockHz);
     void acquireBlock();
     void submitCurrentBlock(size_t lengthBytes);
     static bool dmaDoneISR(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t* edata, void* user_ctx);
+    void startMessage();
+    inline __attribute__((always_inline)) void setBits(uint8_t bitmap);
+    void endMessage();
+
+    inline __attribute__((always_inline)) uint8_t* getWritePointer();
+    inline __attribute__((always_inline)) uint8_t* getBufferEnd();
+    inline __attribute__((always_inline)) void nextDMABlock(uint8_t*& out);
 
 public:
     // constructors:
@@ -90,9 +98,5 @@ public:
 
     void setBrightness(uint8_t _brightness);
 
-    // DMA  functions:
-    void startMessage();
-    inline __attribute__((always_inline)) void setBits(uint8_t bitmap);
-    void endMessage();
     void flush();
 };
