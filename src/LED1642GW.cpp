@@ -281,7 +281,6 @@ void LED1642GW::update()
     // Periodic config refresh
     if (millis() - lastSettingsUpdate > settingUpdateInterval) {
         lastSettingsUpdate = millis();
-        // enableOutputs(false);
         setConfigRegister();
         enableOutputs();
     }
