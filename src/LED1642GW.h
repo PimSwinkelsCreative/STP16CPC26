@@ -19,7 +19,7 @@
 // DMA settings:
 //  Large buffering to avoid CPU stalls
 #define DMA_BLOCK_SIZE 4096
-#define DMA_QUEUE_DEPTH 16
+#define DMA_QUEUE_DEPTH 8
 
 class LED1642GW {
 private:
