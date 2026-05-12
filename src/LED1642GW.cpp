@@ -194,54 +194,40 @@ void LED1642GW::setConfigRegister()
     cfg |= (1 << 7); // CFG7 = normal mode
     cfg |= (1 << 13); // CFG13 = SDO delay enable
 
+    // start DMA message
     startMessage();
 
-    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        for (int i = 15; i >= 0; i--) {
-            uint8_t bitmap = 0;
-            // setDataPin((cfg & 0x01 << i) >> i);
-            if ((cfg & 0x01 << i)) {
-                bitmap |= 0b01; // set the dataPin
-            }
+    // Direct DMA access
+    uint8_t* out = currentBuffer;
+    uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
 
-            if (driver == 0) {
-                if (i <= 6) {
-                    // setLatchPin();
-                    bitmap |= 0b10; // set the latchPin;
-                }
-            }
-            // pulseClock();
-            setBits(bitmap);
-        }
-        // clearLatchPin();
+    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
+        uint16_t latch = (driver == 0) ? 0x003F : 0x0000;
+        shiftOut16(cfg, latch, out, outEnd);
     }
-    // setDataPin(false);
+    // Submit remaining partial block
+    currentIndex = out - currentBuffer;
     endMessage();
 }
 
 void LED1642GW::enableOutputs()
 {
+    // start DMA message
     startMessage();
+
+    // Direct DMA access
+    uint8_t* out = currentBuffer;
+    uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
+
+    uint16_t value = 0xFFFF; // all bits high for all drivers
+
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        for (int i = 15; i >= 0; i--) {
 
-            uint8_t bitmap = 0;
-
-            bitmap |= 0b01; // always set the datapin high, since all pins need to be enabled
-            // setDataPin(true); // all pins need to be enabled, so data is always "1"
-
-            if (driver == 0) {
-                if (i <= 1) {
-                    bitmap |= 0b10; // set the latchPin high
-                    // digitalWrite(latchPin, HIGH);
-                }
-            }
-            // pulseClock();
-            setBits(bitmap);
-        }
-        // clearLatchPin();
+        uint16_t latch = (driver == 0) ? 0x0003 : 0x0000; // last two bits high on last driver update
+        shiftOut16(value, latch, out, outEnd);
     }
-    // setDataPin(false);
+    // Submit remaining partial block
+    currentIndex = out - currentBuffer;
     endMessage();
 }
 
@@ -296,19 +282,8 @@ void LED1642GW::update()
             uint16_t value = leds[nodeIndex];
             uint16_t latch = (driver == 0) ? latchMasks[channel] : 0;
 
-            // Shift out 16 bits
-            for (int i = 0; i < 16; i++) {
-                *out++ = ((value & 0x8000) ? 0x01 : 0x00) | ((latch & 0x8000) ? 0x02 : 0x00);
-                value <<= 1;
-                latch <<= 1;
-
-                // DMA block full?
-                if (out >= outEnd) {
-                    currentIndex = DMA_BLOCK_SIZE;
-                    nextDMABlock(out);
-                    outEnd = currentBuffer + DMA_BLOCK_SIZE;
-                }
-            }
+            // shift out the data for 1 driver:
+            shiftOut16(value, latch, out, outEnd);
         }
     }
 
@@ -411,24 +386,6 @@ void LED1642GW::startMessage()
     acquireBlock();
 }
 
-// ========================================================
-// WRITE ONE SYMBOL
-// bit0 -> DATA
-// bit1 -> LATCH
-// ========================================================
-
-inline __attribute__((always_inline)) void LED1642GW::setBits(uint8_t bitmap)
-{
-    currentBuffer[currentIndex++] = bitmap & 0x03; // only use 2 least significant bits
-
-    // Buffer full?
-    if (currentIndex >= DMA_BLOCK_SIZE) {
-        submitCurrentBlock(DMA_BLOCK_SIZE);
-        acquireBlock();
-        currentIndex = 0;
-    }
-}
-
 void LED1642GW::endMessage()
 {
     // Send partially filled block
@@ -465,9 +422,7 @@ void LED1642GW::submitCurrentBlock(size_t lengthBytes)
     xSemaphoreGive(queuedBlocks);
 }
 
-// ========================================================
 // DMA COMPLETE ISR
-// ========================================================
 bool LED1642GW::dmaDoneISR(
     esp_lcd_panel_io_handle_t panel_io,
     esp_lcd_panel_io_event_data_t* edata,
@@ -511,4 +466,21 @@ inline __attribute__((always_inline)) void LED1642GW::nextDMABlock(uint8_t*& out
 
     // update local pointer
     out = currentBuffer;
+}
+
+inline __attribute__((always_inline)) void LED1642GW::shiftOut16(uint16_t value, uint16_t latch, uint8_t*& out, uint8_t*& outEnd)
+{
+    // Shift out 16 bits
+    for (int i = 0; i < 16; i++) {
+        *out++ = ((value & 0x8000) ? 0x01 : 0x00) | ((latch & 0x8000) ? 0x02 : 0x00);
+        value <<= 1;
+        latch <<= 1;
+
+        // DMA block full?
+        if (out >= outEnd) {
+            currentIndex = DMA_BLOCK_SIZE;
+            nextDMABlock(out);
+            outEnd = currentBuffer + DMA_BLOCK_SIZE;
+        }
+    }
 }

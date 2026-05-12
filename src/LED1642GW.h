@@ -61,12 +61,12 @@ private:
     void submitCurrentBlock(size_t lengthBytes);
     static bool dmaDoneISR(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t* edata, void* user_ctx);
     void startMessage();
-    inline __attribute__((always_inline)) void setBits(uint8_t bitmap);
     void endMessage();
 
     inline __attribute__((always_inline)) uint8_t* getWritePointer();
     inline __attribute__((always_inline)) uint8_t* getBufferEnd();
     inline __attribute__((always_inline)) void nextDMABlock(uint8_t*& out);
+    inline __attribute__((always_inline)) void shiftOut16(uint16_t value, uint16_t latch, uint8_t*& out, uint8_t*& outEnd);
 
 public:
     // constructors:
