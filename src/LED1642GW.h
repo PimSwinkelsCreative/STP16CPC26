@@ -52,7 +52,7 @@ private:
     void init();
 
     void setConfigRegister();
-    void enableOutputs();
+    void enableOutputs(bool enable = true);
     void startPWMClock();
 
     // dma functions:

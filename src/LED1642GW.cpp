@@ -50,15 +50,6 @@ void LED1642GW::init()
         nLedDrivers++;
     }
 
-    // pinMode(clkPin, OUTPUT);
-    // pinMode(dataPin, OUTPUT);
-    // pinMode(latchPin, OUTPUT);
-    // digitalWrite(latchPin, LOW);
-
-    // clkPinBitmap = 1 << (clkPin % 32);
-    // dataPinBitmap = 1 << (dataPin % 32);
-    // latchPinBitmap = 1 << (latchPin % 32);
-
     if (!setupDMA(DEFAULT_DMA_CLK_FREQUENCY)) // TODO make clk frequency updateable
     {
         Serial.println("DMA init failed!");
@@ -202,7 +193,7 @@ void LED1642GW::setConfigRegister()
     uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
 
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        uint16_t latch = (driver == 0) ? 0x003F : 0x0000;
+        uint16_t latch = (driver == 0) ? 0x007F : 0x0000;
         shiftOut16(cfg, latch, out, outEnd);
     }
     // Submit remaining partial block
@@ -210,7 +201,7 @@ void LED1642GW::setConfigRegister()
     endMessage();
 }
 
-void LED1642GW::enableOutputs()
+void LED1642GW::enableOutputs(bool enable)
 {
     // start DMA message
     startMessage();
@@ -220,6 +211,9 @@ void LED1642GW::enableOutputs()
     uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
 
     uint16_t value = 0xFFFF; // all bits high for all drivers
+    if (!enable) {
+        value = 0x0000; // all bits low for all drivers
+    }
 
     for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
 
@@ -261,13 +255,6 @@ void LED1642GW::startPWMClock()
 
 void LED1642GW::update()
 {
-    // Periodic config refresh
-    if (millis() - lastSettingsUpdate > settingUpdateInterval) {
-        lastSettingsUpdate = millis();
-        setConfigRegister();
-        enableOutputs();
-    }
-
     // Start DMA message
     startMessage();
 
@@ -290,6 +277,14 @@ void LED1642GW::update()
     // Submit remaining partial block
     currentIndex = out - currentBuffer;
     endMessage();
+
+    // Periodic config refresh
+    if (millis() - lastSettingsUpdate > settingUpdateInterval) {
+        lastSettingsUpdate = millis();
+        // enableOutputs(false);
+        setConfigRegister();
+        enableOutputs();
+    }
 }
 
 void LED1642GW::setLedTo(uint16_t ledIndex, struct RGBWColor16 color)
