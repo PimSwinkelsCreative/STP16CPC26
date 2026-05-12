@@ -464,20 +464,21 @@ inline __attribute__((always_inline)) void LED1642GW::nextDMABlock(uint8_t*& out
 
 inline __attribute__((always_inline)) void LED1642GW::shiftOut16(uint16_t value, uint16_t latch, uint8_t*& out, uint8_t*& outEnd)
 {
+
+    // ensure enough room for entire word:
+    if ((outEnd - out) < 16) {
+        currentIndex = DMA_BLOCK_SIZE;
+        nextDMABlock(out);
+        outEnd = currentBuffer + DMA_BLOCK_SIZE;
+    }
+
     // Most of the time, the latch signal is low all the time.
-    // Therefore this function is implemented twice within this function, both with and without thelatch signal
+    // Therefore this part is implemented twice within this function, both with and without the latch signal
     if (!latch) {
         // Shift out 16 bits without latch
         for (int i = 0; i < 16; i++) {
             *out++ = (value & 0x8000) ? 0x01 : 0x00;
             value <<= 1;
-
-            // DMA block full?
-            if (out >= outEnd) {
-                currentIndex = DMA_BLOCK_SIZE;
-                nextDMABlock(out);
-                outEnd = currentBuffer + DMA_BLOCK_SIZE;
-            }
         }
 
     } else {
@@ -486,13 +487,6 @@ inline __attribute__((always_inline)) void LED1642GW::shiftOut16(uint16_t value,
             *out++ = ((value & 0x8000) ? 0x01 : 0x00) | ((latch & 0x8000) ? 0x02 : 0x00);
             value <<= 1;
             latch <<= 1;
-
-            // DMA block full?
-            if (out >= outEnd) {
-                currentIndex = DMA_BLOCK_SIZE;
-                nextDMABlock(out);
-                outEnd = currentBuffer + DMA_BLOCK_SIZE;
-            }
         }
     }
 }
