@@ -1,40 +1,43 @@
 #include "LED1642GW.h"
-#include "driver/gpio.h"
-#include "driver/i2s.h"
-#include "soc/gpio_reg.h"
-#include "soc/gpio_struct.h"
+#include "driver/gpio.h" //required for direct output register manipulation
+#include "driver/i2s.h" //required for 10MHz PWM clock
+#include "soc/gpio_reg.h" //required for direct output register manipulation
+#include "soc/gpio_struct.h" //required for direct output register manipulation
 
 LED1642GW::LED1642GW(uint16_t* _ledData, uint16_t _nLedDots, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
+    uint8_t _dataPin, uint8_t _latchPin, uint8_t _dummyPin, int8_t _pwmClockPin)
     : leds(_ledData)
     , nLedDots(_nLedDots)
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
+    , dummyPin(_dummyPin)
     , pwmClockPin(_pwmClockPin)
 {
     init();
 }
 
 LED1642GW::LED1642GW(RGBColor16* _rgbLedData, uint16_t _nRGBLeds, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
+    uint8_t _dataPin, uint8_t _latchPin, uint8_t _dummyPin, int8_t _pwmClockPin)
     : leds((uint16_t*)_rgbLedData)
     , nLedDots(_nRGBLeds * (sizeof(_rgbLedData[0]) / sizeof(_rgbLedData[0].r)))
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
+    , dummyPin(_dummyPin)
     , pwmClockPin(_pwmClockPin)
 {
     init();
 }
 
 LED1642GW::LED1642GW(RGBWColor16* _rgbwData, uint16_t _nRGBWLeds, uint8_t _clkPin,
-    uint8_t _dataPin, uint8_t _latchPin, int8_t _pwmClockPin)
+    uint8_t _dataPin, uint8_t _latchPin, uint8_t _dummyPin, int8_t _pwmClockPin)
     : leds((uint16_t*)_rgbwData)
     , nLedDots(_nRGBWLeds * (sizeof(_rgbwData[0]) / sizeof(_rgbwData[0].r)))
     , clkPin(_clkPin)
     , dataPin(_dataPin)
     , latchPin(_latchPin)
+    , dummyPin(_dummyPin)
     , pwmClockPin(_pwmClockPin)
 {
     init();
@@ -47,14 +50,13 @@ void LED1642GW::init()
         nLedDrivers++;
     }
 
-    pinMode(clkPin, OUTPUT);
-    pinMode(dataPin, OUTPUT);
-    pinMode(latchPin, OUTPUT);
-    digitalWrite(latchPin, LOW);
-
-    clkPinBitmap = 1 << (clkPin % 32);
-    dataPinBitmap = 1 << (dataPin % 32);
-    latchPinBitmap = 1 << (latchPin % 32);
+    if (!setupDMA(DEFAULT_DMA_CLK_FREQUENCY)) // TODO make clk frequency updateable
+    {
+        Serial.println("DMA init failed!");
+        while (true)
+            ;
+    }
+    Serial.println("DMA streamer ready");
 
     lastSettingsUpdate = 0;
     settingUpdateInterval = 1000;
@@ -69,6 +71,111 @@ void LED1642GW::init()
     }
 }
 
+bool LED1642GW::setupDMA(uint32_t clockHz)
+{
+    // ----------------------------------------------------
+    // Allocate DMA buffers
+    // ----------------------------------------------------
+
+    for (int i = 0; i < DMA_QUEUE_DEPTH; i++) {
+
+        dmaBuffers[i] = (uint8_t*)heap_caps_malloc(
+            DMA_BLOCK_SIZE,
+            MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+
+        if (!dmaBuffers[i]) {
+
+            Serial.println("DMA allocation failed");
+            return false;
+        }
+
+        memset(dmaBuffers[i], 0, DMA_BLOCK_SIZE);
+    }
+
+    // ----------------------------------------------------
+    // Create semaphores
+    // ----------------------------------------------------
+
+    freeBlocks = xSemaphoreCreateCounting(
+        DMA_QUEUE_DEPTH,
+        DMA_QUEUE_DEPTH);
+
+    queuedBlocks = xSemaphoreCreateCounting(
+        DMA_QUEUE_DEPTH,
+        0);
+    // ----------------------------------------------------
+    // LCD BUS CONFIG
+    // ----------------------------------------------------
+
+    esp_lcd_i80_bus_config_t bus_config = {
+
+        .dc_gpio_num = dummyPin,
+
+        .wr_gpio_num = clkPin,
+
+        .clk_src = LCD_CLK_SRC_PLL160M,
+
+        .data_gpio_nums = {
+            dataPin,
+            latchPin,
+            dummyPin,
+            dummyPin,
+            dummyPin,
+            dummyPin,
+            dummyPin,
+            dummyPin },
+
+        .bus_width = 8,
+
+        .max_transfer_bytes = DMA_BLOCK_SIZE,
+    };
+
+    ESP_ERROR_CHECK(
+        esp_lcd_new_i80_bus(
+            &bus_config,
+            &i80_bus));
+
+    // ----------------------------------------------------
+    // PANEL IO CONFIG
+    // ----------------------------------------------------
+
+    esp_lcd_panel_io_i80_config_t io_config = {
+
+        .cs_gpio_num = -1,
+
+        .pclk_hz = clockHz,
+
+        .trans_queue_depth = DMA_QUEUE_DEPTH,
+
+        .on_color_trans_done = dmaDoneISR,
+
+        .user_ctx = this,
+
+        .lcd_cmd_bits = 0,
+        .lcd_param_bits = 0,
+    };
+
+    ESP_ERROR_CHECK(
+        esp_lcd_new_panel_io_i80(
+            i80_bus,
+            &io_config,
+            &io_handle));
+
+    // ----------------------------------------------------
+    // Bitmap Mask preparations
+    // ----------------------------------------------------
+
+    for (int i = 0; i < 16; i++) {
+        if (i > 0) {
+            latchMasks[i] = 0x000F;
+        } else {
+            latchMasks[i] = 0x003F;
+        }
+    }
+
+    return true;
+}
+
 void LED1642GW::setConfigRegister()
 {
     // build the config register:
@@ -78,38 +185,44 @@ void LED1642GW::setConfigRegister()
     cfg |= (1 << 7); // CFG7 = normal mode
     cfg |= (1 << 13); // CFG13 = SDO delay enable
 
-    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        for (int i = 15; i >= 0; i--) {
-            setDataPin((cfg & 0x01 << i) >> i);
+    // start DMA message
+    startMessage();
 
-            if (driver == 0) {
-                if (i == 6) {
-                    setLatchPin();
-                }
-            }
-            pulseClock();
-        }
-        clearLatchPin();
+    // Direct DMA access
+    uint8_t* out = currentBuffer;
+    uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
+
+    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
+        uint16_t latch = (driver == 0) ? 0x007F : 0x0000;
+        shiftOut16(cfg, latch, out, outEnd);
     }
-    setDataPin(false);
+    // Submit remaining partial block
+    currentIndex = out - currentBuffer;
+    endMessage();
 }
 
-void LED1642GW::enableOutputs()
+void LED1642GW::enableOutputs(bool enable)
 {
-    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-        for (int i = 15; i >= 0; i--) {
-            setDataPin(true); // all pins need to be enabled, so data is always "1"
+    // start DMA message
+    startMessage();
 
-            if (driver == 0) {
-                if (i == 1) {
-                    digitalWrite(latchPin, HIGH);
-                }
-            }
-            pulseClock();
-        }
-        clearLatchPin();
+    // Direct DMA access
+    uint8_t* out = currentBuffer;
+    uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
+
+    uint16_t value = 0xFFFF; // all bits high for all drivers
+    if (!enable) {
+        value = 0x0000; // all bits low for all drivers
     }
-    setDataPin(false);
+
+    for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
+
+        uint16_t latch = (driver == 0) ? 0x0003 : 0x0000; // last two bits high on last driver update
+        shiftOut16(value, latch, out, outEnd);
+    }
+    // Submit remaining partial block
+    currentIndex = out - currentBuffer;
+    endMessage();
 }
 
 void LED1642GW::startPWMClock()
@@ -142,37 +255,35 @@ void LED1642GW::startPWMClock()
 
 void LED1642GW::update()
 {
-    // periodically re-send the config data to allow for delayed power on of the interconnect boards:
+    // Start DMA message
+    startMessage();
+
+    // Direct DMA access
+    uint8_t* out = currentBuffer;
+    uint8_t* outEnd = currentBuffer + DMA_BLOCK_SIZE;
+
+    // LED data generation
+    for (int channel = 15; channel >= 0; channel--) {
+        for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
+            uint16_t nodeIndex = driver * LEDDOTSPERDRIVER + channel;
+            uint16_t value = leds[nodeIndex];
+            uint16_t latch = (driver == 0) ? latchMasks[channel] : 0;
+
+            // shift out the data for 1 driver:
+            shiftOut16(value, latch, out, outEnd);
+        }
+    }
+
+    // Submit remaining partial block
+    currentIndex = out - currentBuffer;
+    endMessage();
+
+    // Periodic config refresh
     if (millis() - lastSettingsUpdate > settingUpdateInterval) {
         lastSettingsUpdate = millis();
         setConfigRegister();
         enableOutputs();
     }
-
-    // send the LED data:
-    for (int channel = 15; channel >= 0; channel--) {
-        for (int driver = nLedDrivers - 1; driver >= 0; driver--) {
-            uint16_t nodeIndex = driver * LEDDOTSPERDRIVER + channel;
-            for (int i = 15; i >= 0; i--) {
-                setDataPin((leds[nodeIndex] & 0x01 << i) >> i);
-
-                if (driver == 0) {
-                    if (channel > 0) {
-                        if (i == 3) {
-                            setLatchPin();
-                        }
-                    } else {
-                        if (i == 5) {
-                            setLatchPin();
-                        }
-                    }
-                }
-                pulseClock();
-            }
-            clearLatchPin();
-        }
-    }
-    setDataPin(false);
 }
 
 void LED1642GW::setLedTo(uint16_t ledIndex, struct RGBWColor16 color)
@@ -254,54 +365,116 @@ void LED1642GW::clearLeds()
 
 void LED1642GW::setBrightness(uint8_t _brightness)
 {
-    brightness = constrain(_brightness,0,MAXBRIGHTNESS);
+    brightness = constrain(_brightness, 0, MAXBRIGHTNESS);
     setConfigRegister();
-}
-
-void LED1642GW::pulseClock()
-{
-    if (clkPin < 31) {
-        GPIO.out_w1ts = clkPinBitmap; // set pin
-        GPIO.out_w1tc = clkPinBitmap; // clear pin
-    } else {
-        GPIO.out1_w1ts.val = clkPinBitmap; // set pin
-        GPIO.out1_w1tc.val = clkPinBitmap; // clear pin
-    }
-}
-void LED1642GW::setDataPin(bool value)
-{
-    if (dataPin < 31) {
-        if (value) {
-            GPIO.out_w1ts = dataPinBitmap;
-        } else {
-            GPIO.out_w1tc = dataPinBitmap;
-        }
-    } else {
-        if (value) {
-            GPIO.out1_w1ts.val = dataPinBitmap;
-        } else {
-            GPIO.out1_w1tc.val = dataPinBitmap;
-        }
-    }
-}
-void LED1642GW::setLatchPin()
-{
-    if (latchPin < 31) {
-        GPIO.out_w1ts = latchPinBitmap;
-    } else {
-        GPIO.out1_w1ts.val = latchPinBitmap;
-    }
-}
-void LED1642GW::clearLatchPin()
-{
-    if (latchPin < 31) {
-        GPIO.out_w1tc = latchPinBitmap;
-    } else {
-        GPIO.out1_w1tc.val = latchPinBitmap;
-    }
 }
 
 void LED1642GW::setConfigUpdateInterval(uint32_t milliseconds)
 {
     settingUpdateInterval = milliseconds;
+}
+
+void LED1642GW::startMessage()
+{
+    currentIndex = 0;
+    acquireBlock();
+}
+
+void LED1642GW::endMessage()
+{
+    // Send partially filled block
+    if (currentIndex > 0) {
+
+        submitCurrentBlock(currentIndex);
+    }
+    currentBuffer = nullptr;
+    currentIndex = 0;
+}
+
+void LED1642GW::flush()
+{
+    // wait for the queued messages to be sent
+    while (true) {
+        if (uxSemaphoreGetCount(queuedBlocks) == 0 && uxSemaphoreGetCount(freeBlocks) == DMA_QUEUE_DEPTH) {
+            break;
+        }
+        delayMicroseconds(10);
+    }
+}
+
+void LED1642GW::acquireBlock()
+{
+    xSemaphoreTake(freeBlocks, portMAX_DELAY);
+    currentBuffer = dmaBuffers[writeBlockIndex];
+    writeBlockIndex++;
+    writeBlockIndex %= DMA_QUEUE_DEPTH;
+}
+
+void LED1642GW::submitCurrentBlock(size_t lengthBytes)
+{
+    ESP_ERROR_CHECK(esp_lcd_panel_io_tx_color(io_handle, 0, currentBuffer, lengthBytes));
+    xSemaphoreGive(queuedBlocks);
+}
+
+// DMA COMPLETE ISR
+bool LED1642GW::dmaDoneISR(
+    esp_lcd_panel_io_handle_t panel_io,
+    esp_lcd_panel_io_event_data_t* edata,
+    void* user_ctx)
+{
+
+    LED1642GW* self = (LED1642GW*)user_ctx;
+
+    BaseType_t highTaskWoken = pdFALSE;
+
+    xSemaphoreGiveFromISR(
+        self->freeBlocks,
+        &highTaskWoken);
+
+    xSemaphoreTakeFromISR(
+        self->queuedBlocks,
+        &highTaskWoken);
+
+    return highTaskWoken == pdTRUE;
+}
+
+inline __attribute__((always_inline)) uint8_t* LED1642GW::getWritePointer()
+{
+    return currentBuffer + currentIndex;
+}
+
+inline __attribute__((always_inline)) uint8_t* LED1642GW::getBufferEnd()
+{
+    return currentBuffer + DMA_BLOCK_SIZE;
+}
+
+inline __attribute__((always_inline)) void LED1642GW::nextDMABlock(uint8_t*& out)
+{
+    // submit current full block
+    submitCurrentBlock(DMA_BLOCK_SIZE);
+
+    // acquire next block
+    acquireBlock();
+
+    currentIndex = 0;
+
+    // update local pointer
+    out = currentBuffer;
+}
+
+inline __attribute__((always_inline)) void LED1642GW::shiftOut16(uint16_t value, uint16_t latch, uint8_t*& out, uint8_t*& outEnd)
+{
+    // Shift out 16 bits
+    for (int i = 0; i < 16; i++) {
+        *out++ = ((value & 0x8000) ? 0x01 : 0x00) | ((latch & 0x8000) ? 0x02 : 0x00);
+        value <<= 1;
+        latch <<= 1;
+
+        // DMA block full?
+        if (out >= outEnd) {
+            currentIndex = DMA_BLOCK_SIZE;
+            nextDMABlock(out);
+            outEnd = currentBuffer + DMA_BLOCK_SIZE;
+        }
+    }
 }
