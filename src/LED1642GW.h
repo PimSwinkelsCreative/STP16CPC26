@@ -19,7 +19,15 @@
 // DMA settings:
 //  Large buffering to avoid CPU stalls
 #define DMA_BLOCK_SIZE 4096
-#define DMA_QUEUE_DEPTH 8
+#define DMA_QUEUE_DEPTH 16
+
+enum LatchMode : uint8_t {
+    NO_LATCH,
+    LATCH_2,
+    LATCH_4,
+    LATCH_6,
+    LATCH_7
+};
 
 class LED1642GW {
 private:
@@ -47,7 +55,19 @@ private:
     SemaphoreHandle_t queuedBlocks;
     esp_lcd_i80_bus_handle_t i80_bus = nullptr;
     esp_lcd_panel_io_handle_t io_handle = nullptr;
-    uint16_t latchMasks[16];
+
+    // lookup tables:
+    LatchMode latchMasks[16];
+    uint32_t expanded8_noLatch_A[256];
+    uint32_t expanded8_noLatch_B[256];
+    uint32_t expanded8_latch2_A[256];
+    uint32_t expanded8_latch2_B[256];
+    uint32_t expanded8_latch4_A[256];
+    uint32_t expanded8_latch4_B[256];
+    uint32_t expanded8_latch6_A[256];
+    uint32_t expanded8_latch6_B[256];
+    uint32_t expanded8_latch7_A[256];
+    uint32_t expanded8_latch7_B[256];
 
     void init();
 
@@ -57,6 +77,7 @@ private:
 
     // dma functions:
     bool setupDMA(uint32_t clockHz);
+    void fillLookupTables();
     void acquireBlock();
     void submitCurrentBlock(size_t lengthBytes);
     static bool dmaDoneISR(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t* edata, void* user_ctx);
@@ -66,7 +87,7 @@ private:
     inline __attribute__((always_inline)) uint8_t* getWritePointer();
     inline __attribute__((always_inline)) uint8_t* getBufferEnd();
     inline __attribute__((always_inline)) void nextDMABlock(uint8_t*& out);
-    inline __attribute__((always_inline)) void shiftOut16(uint16_t value, uint16_t latch, uint8_t*& out, uint8_t*& outEnd);
+    inline __attribute__((always_inline)) void shiftOut16(uint16_t value, LatchMode latchMode, uint8_t*& out, uint8_t*& outEnd);
 
 public:
     // constructors:
