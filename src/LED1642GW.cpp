@@ -140,6 +140,11 @@ bool LED1642GW::setupDMA(uint32_t clockHz)
             Serial.println("DMA allocation failed");
             return false;
         }
+
+        // Ensure 32-bit alignment for fast uint32_t stores
+        assert(((uintptr_t)dmaBuffers[i] & 0x3) == 0);
+
+        // set all buffers to 0
         memset(dmaBuffers[i], 0, DMA_BLOCK_SIZE);
     }
 
