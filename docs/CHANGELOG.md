@@ -11,3 +11,6 @@
 
 ## [1.1.2] - 2026-13-05
 ### Major further speed update to minimize the CPU time during an update
+
+## [1.1.3] - 2026-13-05
+### Significant reduction in RAM usage
